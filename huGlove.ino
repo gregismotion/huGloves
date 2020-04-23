@@ -1,56 +1,55 @@
-#include <SPI.h>
-#include <Wire.h>
 #include <SoftwareSerial.h>
 #include <ss_oled.h>
+#include "rtc.h"
+#include "RTClib.h"
 
 SSOLED ssoled;
 #define SDA_PIN -1
 #define SCL_PIN -1
-// no reset pin needed
 #define RESET_PIN -1
-// let ss_oled find the address of our display
 #define OLED_ADDR -1
 #define FLIP180 0
 #define INVERT 0
-// Use the default Wire library
 #define USE_HW_I2C 1
 
 #define TxD 11
 #define RxD 12
 SoftwareSerial btSerial(RxD, TxD); 
-int btTimeout = 5000;
+const int btTimeout = 60000 * 3;
+const char btDelimiter[1] = ";";
 
-int switch0Pin = 2;
-int switch1Pin = 3;
+const int switch0Pin = 2;
+const int switch1Pin = 3;
 volatile int switch0Flag = LOW;
 volatile int switch1Flag = LOW;
-int switchDelay = 500;
+const int switchDelay = 500;
 unsigned long lastPress = 0;
 
+unsigned long lastTimeRefresh;
+const int timeRefreshMs = 3000;
 int currentPage = 0;
+const int maxPage = 1;
+bool toggleSecondary = false;
+bool secondary = false;
 
-unsigned int year = 2020;
-unsigned int month = 12;
-unsigned int day = 31;
-unsigned int hour = 23;
-unsigned int minute = 59;
-unsigned int second = 59;
+RTC_DS3231 rtc;
 
-String getValue(String data, char separator, int index)
-{
-  int found = 0;
-  int strIndex[] = {0, -1};
-  int maxIndex = data.length()-1;
-
-  for(int i=0; i<=maxIndex && found<=index; i++){
-    if(data.charAt(i)==separator || i==maxIndex){
-        found++;
-        strIndex[0] = strIndex[1]+1;
-        strIndex[1] = (i == maxIndex) ? i+1 : i;
+void tokenizeDate(struct Date* date, char* in)
+{ 
+  char* token = strtok(in, btDelimiter);
+  int count = 0;
+  while(token) {
+    switch(count) {
+      case 0: date->year = atoi(token); break;
+      case 1: date->month = atoi(token); break;
+      case 2: date->day = atoi(token); break;
+      case 3: date->hour = atoi(token); break;
+      case 4: date->minute = atoi(token); break;
+      case 5: date->second = atoi(token); break;
     }
+    token = strtok(NULL, btDelimiter);
+    count++;
   }
-
-  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
 
 
@@ -63,114 +62,77 @@ void switch1Changed() {
 void switchPageChange() {
   if (millis() - lastPress >= switchDelay) {
     if (switch0Flag == HIGH) {
-      currentPage--;
       lastPress = millis();
-      refreshPage();
     }
     if (switch1Flag == HIGH) {
-      currentPage++;
+      incrementPage();
       lastPress = millis();   
       refreshPage();
     }
   }
 }
 
+void incrementPage() {
+    if (currentPage >= maxPage) {
+      currentPage = 0;
+    } else {
+      currentPage++;
+    }
+}
+
 void drawTimeSync() {
   oledWriteString(&ssoled, 0, 0, 0, "Syncing over BT...", FONT_SMALL, 0, 1);
 }
-void drawTime(int hour, int minute) {
-  char clockBuf[5];
-  sprintf(clockBuf, "%02d:%02d", hour, minute);
-  oledWriteString(&ssoled, 0, 25, 3, clockBuf, FONT_STRETCHED, 0, 1);
-}
-void drawDate(int year, int month, int day) {
+void drawDate() {
   char dateBuf[13];
-  sprintf(dateBuf, "%04d. %02d. %02d.", year, month, day);
+  formatDate(dateBuf);
   oledWriteString(&ssoled, 0, 0, 0, dateBuf, FONT_SMALL, 0, 1);
 }
-
-enum DateType { YEAR, MONTH, DAY, HOUR, MINUTE, SECOND };
-int getRtcTime(int key) {
-  switch(key) {
-    case YEAR: {
-      return year;  
-    }  
-    case MONTH: {
-      return month;  
-    }  
-    case DAY: {
-      return day;  
-    }  
-    case HOUR: {
-      return hour;  
-    }  
-    case MINUTE: {
-      return minute;  
-    }  
-    case SECOND: {
-      return second;  
-    }  
-  } 
+void drawTime() {
+  char clockBuf[5];
+  formatTime(clockBuf);
+  oledWriteString(&ssoled, 0, 25, 3, clockBuf, FONT_STRETCHED, 0, 1);  
 }
-void setRtcTime(int key, unsigned int value) {
-  switch(key) {
-    case YEAR: {
-      year = value;
-      break;
-    }  
-    case MONTH: {
-      month = value;
-      break;
-    }  
-    case DAY: {
-      day = value;
-      break;
-    }  
-    case HOUR: {
-      hour = value;
-      break;
-    }  
-    case MINUTE: {
-      minute = value;
-      break;
-    }  
-    case SECOND: {
-      second = value;
-      break;
-    }  
-  } 
+void drawSecondary() {
+  oledFill(&ssoled, 0, 1);
+  switch (currentPage) {
+    case 0: {
+      oledWriteString(&ssoled, 0, 0, 1, "Sync time (BT)", FONT_NORMAL, 1, 1);
+      oledWriteString(&ssoled, 0, 0, 2, "Timer", FONT_NORMAL, 0, 1);
+      oledWriteString(&ssoled, 0, 0, 2, "Stopwatch", FONT_NORMAL, 0, 1);
+    }    
+  }
+}
+void formatTime(char* clockBuf) {
+  snprintf(clockBuf, 6, "%02d:%02d", getRtcTime(rtc, HOUR), getRtcTime(rtc, MINUTE));
+}
+void formatDate(char* dateBuf) {
+  snprintf(dateBuf, 13, "%04d. %02d. %02d.", getRtcTime(rtc, YEAR), getRtcTime(rtc, MONTH), getRtcTime(rtc, DAY));
 }
 
+void refreshTime() {
+  if (millis() - lastTimeRefresh >= timeRefreshMs) {
+    lastTimeRefresh = millis();
+    drawTime();  
+  }
+}
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
   switch (currentPage) {
-    case -1: {
-      //drawTime(hour, minute);
-      break;
-    }
     case 0: {
-      drawDate(getRtcTime(YEAR), getRtcTime(MONTH), getRtcTime(DAY));
-      drawTime(getRtcTime(HOUR), getRtcTime(MINUTE));
+      drawDate();
+      drawTime();
       break;
     }
     case 1: {
-      //drawWeather();
+      drawDate();
       break;  
     }
   }
 }
 
-char btSafeRead() {
-  noInterrupts();
-  char ch = btSerial.read();
-  interrupts();
-  return ch;
-}
-String btSafeReadString() {
-  //noInterrupts();
-  String str = btSerial.readString();
-  interrupts();
-  return str;
+void btSafeReadLine(char* outStr, int len) {
+  btSerial.readString().toCharArray(outStr, len);
 }
 void btSafePrintLn(String str) {
   noInterrupts();
@@ -185,54 +147,68 @@ void waitForBt() {
 void syncTimeBT() {
   btSafePrintLn("TIME");
   waitForBt();
-  String input = btSafeReadString();
-  char delimiter = ';';
-  setRtcTime(YEAR, getValue(input, delimiter, 0).toInt());
-  setRtcTime(MONTH, getValue(input, delimiter, 1).toInt());
-  setRtcTime(DAY, getValue(input, delimiter, 2).toInt());
-  setRtcTime(HOUR, getValue(input, delimiter, 3).toInt());
-  setRtcTime(MINUTE, getValue(input, delimiter, 4).toInt());
-  setRtcTime(SECOND, getValue(input, delimiter, 5).toInt());
-  btSafePrintLn("DONE");
+  char input[20];
+  btSafeReadLine(input, 20);
+  struct Date date;
+  tokenizeDate(&date, input);
+  setRtcTime(rtc, date);
 }
 
-void initScreen() {
-  int rc;
-  rc = oledInit(&ssoled, OLED_128x64, OLED_ADDR, FLIP180, INVERT, USE_HW_I2C, SDA_PIN, SCL_PIN, RESET_PIN, 400000L);       // Standard HW I2C bus at 400Khz
+bool initScreen() {
+  if (oledInit(&ssoled, OLED_128x64, OLED_ADDR, FLIP180, INVERT, USE_HW_I2C, SDA_PIN, SCL_PIN, RESET_PIN, 400000L) == OLED_NOT_FOUND) {
+    return false;
+  }
+  oledFill(&ssoled, 0, 1);
+  return true;
+}
 
-  if (rc != OLED_NOT_FOUND)
-  {
-      char *msgs[] =
-      {
-        (char *)"SSD1306 @ 0x3C",
-        (char *)"SSD1306 @ 0x3D",
-        (char *)"SH1106 @ 0x3C",
-        (char *)"SH1106 @ 0x3D"
-      };
-
-      oledFill(&ssoled, 0, 1);
-      oledWriteString(&ssoled, 0, 0, 0, (char *)"OLED found:", FONT_NORMAL, 0, 1);
-      oledWriteString(&ssoled, 0, 10, 2, msgs[rc], FONT_NORMAL, 0, 1);
+void switchSecondary() {
+  if (toggleSecondary) {
+    toggleSecondary = false;
+    if (secondary) {
+      refreshPage();
+      secondary = false;
+    } else {
+      drawSecondary();
+      secondary = true;
+    }
   }  
 }
 
-void setup() {
-  initScreen();
-  
-  btSerial.begin(9600); 
-  
+void syncTime() {
   oledFill(&ssoled, 0, 1);
   drawTimeSync();
   syncTimeBT();
+}
+
+void setup() {
+  btSerial.begin(9600); 
+  if (!initScreen()) {
+    btSafePrintLn("ERR");
+    for (;;) {}
+  }
   
+  rtc.begin();
+  if (rtc.lostPower()) {
+      syncTime();
+  }
   refreshPage();
   
   pinMode(switch0Pin, INPUT);
   pinMode(switch1Pin, INPUT);
   attachInterrupt(digitalPinToInterrupt(switch0Pin), switch0Changed, CHANGE);
   attachInterrupt(digitalPinToInterrupt(switch1Pin), switch1Changed, CHANGE);
+  // NEEDS NEW HARDWARE, NANO CANT HANDLE EM
+  //pinMode(switch2Pin, INPUT);
+  //pinMode(switch3Pin, INPUT);
+  //attachInterrupt(digitalPinToInterrupt(switch2Pin), switch2Changed, CHANGE);
+  //attachInterrupt(digitalPinToInterrupt(switch3Pin), switch3Changed, CHANGE);
 }
 
-void loop() { 
+void loop() {
+  if (currentPage == 0) {
+    refreshTime();  
+  }
   switchPageChange();
+  switchSecondary();
 }
