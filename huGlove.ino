@@ -16,7 +16,6 @@ SSOLED ssoled;
 #define RxD 12
 SoftwareSerial btSerial(RxD, TxD); 
 const int btTimeout = 60000 * 3;
-const char btDelimiter[1] = ";";
 
 const int switch0Pin = 2;
 const int switch1Pin = 3;
@@ -33,25 +32,6 @@ bool toggleSecondary = false;
 bool secondary = false;
 
 RTC_DS3231 rtc;
-
-void tokenizeDate(struct Date* date, char* in)
-{ 
-  char* token = strtok(in, btDelimiter);
-  int count = 0;
-  while(token) {
-    switch(count) {
-      case 0: date->year = atoi(token); break;
-      case 1: date->month = atoi(token); break;
-      case 2: date->day = atoi(token); break;
-      case 3: date->hour = atoi(token); break;
-      case 4: date->minute = atoi(token); break;
-      case 5: date->second = atoi(token); break;
-    }
-    token = strtok(NULL, btDelimiter);
-    count++;
-  }
-}
-
 
 void switch0Changed() {
   switch0Flag = digitalRead(switch0Pin);
@@ -149,7 +129,7 @@ void syncTimeBT() {
   waitForBt();
   char input[20];
   btSafeReadLine(input, 20);
-  struct Date date;
+  DateTime date;
   tokenizeDate(&date, input);
   setRtcTime(rtc, date);
 }
@@ -181,6 +161,13 @@ void syncTime() {
   syncTimeBT();
 }
 
+void setupSwitches() {
+  pinMode(switch0Pin, INPUT);
+  pinMode(switch1Pin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(switch0Pin), switch0Changed, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(switch1Pin), switch1Changed, CHANGE);
+}
+
 void setup() {
   btSerial.begin(9600); 
   if (!initScreen()) {
@@ -193,16 +180,7 @@ void setup() {
       syncTime();
   }
   refreshPage();
-  
-  pinMode(switch0Pin, INPUT);
-  pinMode(switch1Pin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(switch0Pin), switch0Changed, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(switch1Pin), switch1Changed, CHANGE);
-  // NEEDS NEW HARDWARE, NANO CANT HANDLE EM
-  //pinMode(switch2Pin, INPUT);
-  //pinMode(switch3Pin, INPUT);
-  //attachInterrupt(digitalPinToInterrupt(switch2Pin), switch2Changed, CHANGE);
-  //attachInterrupt(digitalPinToInterrupt(switch3Pin), switch3Changed, CHANGE);
+  setupSwitches();
 }
 
 void loop() {

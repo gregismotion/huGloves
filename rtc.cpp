@@ -1,12 +1,32 @@
 #include "rtc.h"
 #include "RTClib.h"
 
-unsigned int year = 2020;
-unsigned int month = 12;
-unsigned int day = 31;
-unsigned int hour = 23;
-unsigned int minute = 59;
-unsigned int second = 59;
+const char btDelimiter[1] = ";";
+
+void tokenizeDate(DateTime* date, char* in)
+{ 
+  char* token = strtok(in, btDelimiter);
+  int count = 0;
+  int year;
+  int month;
+  int day;
+  int hour;
+  int minute;
+  int second;
+  while(token) {
+    switch(count) {
+      case 0: year = atoi(token); break;
+      case 1: month = atoi(token); break;
+      case 2: day = atoi(token); break;
+      case 3: hour = atoi(token); break;
+      case 4: minute = atoi(token); break;
+      case 5: second = atoi(token); break;
+    }
+    token = strtok(NULL, btDelimiter);
+    count++;
+  }
+  *date = DateTime(year, month, day, hour, minute, second);
+}
 
 int getRtcTime(RTC_DS3231 rtc, int key) {
   DateTime now = rtc.now();
@@ -31,6 +51,6 @@ int getRtcTime(RTC_DS3231 rtc, int key) {
     }  
   } 
 }
-void setRtcTime(RTC_DS3231 rtc, struct Date date) {
-  rtc.adjust(DateTime(date.year, date.month, date.day, date.hour, date.minute, date.second));
+void setRtcTime(RTC_DS3231 rtc, DateTime date) {
+  rtc.adjust(date);
 }
