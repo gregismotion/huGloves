@@ -17,19 +17,28 @@ SSOLED ssoled;
 SoftwareSerial btSerial(RxD, TxD); 
 const int btTimeout = 60000 * 3;
 
+enum SwitchRole { NEXT_PAGE, DOWN, SELECT, SECONDARY, SET, INCREASE, MAIN, START_STOP };
 const int switch0Pin = 2;
 const int switch1Pin = 3;
 volatile int switch0Flag = LOW;
 volatile int switch1Flag = LOW;
+int switch0Role = SECONDARY;
+int switch1Role = NEXT_PAGE;
 const int switchDelay = 500;
 unsigned long lastPress = 0;
 
-unsigned long lastTimeRefresh;
-const int timeRefreshMs = 3000;
-int currentPage = 0;
-const int maxPage = 1;
+unsigned int lastMinuteTime = 100;
+unsigned int lastDayDate = 100;
+unsigned int currentPage = 0;
+const unsigned int maxPage = 1;
+
 bool toggleSecondary = false;
 bool secondary = false;
+bool secondaryDownFlag = false;
+bool secondarySelectFlag = false;
+unsigned int currentSecondaryOption = 0;
+unsigned int currentMaxSecondaryOption = 0;
+char secondaryOptions[5][20];
 
 RTC_DS3231 rtc;
 
@@ -39,29 +48,12 @@ void switch0Changed() {
 void switch1Changed() {
   switch1Flag = digitalRead(switch1Pin);
 }
-void switchPageChange() {
-  if (millis() - lastPress >= switchDelay) {
-    if (switch0Flag == HIGH) {
-      lastPress = millis();
-    }
-    if (switch1Flag == HIGH) {
-      incrementPage();
-      lastPress = millis();   
-      refreshPage();
-    }
-  }
-}
 
-void incrementPage() {
-    if (currentPage >= maxPage) {
-      currentPage = 0;
-    } else {
-      currentPage++;
-    }
+void formatTime(char* clockBuf) {
+  snprintf(clockBuf, 6, "%02d:%02d", getRtcTime(rtc, HOUR), getRtcTime(rtc, MINUTE));
 }
-
-void drawTimeSync() {
-  oledWriteString(&ssoled, 0, 0, 0, "Syncing over BT...", FONT_SMALL, 0, 1);
+void formatDate(char* dateBuf) {
+  snprintf(dateBuf, 13, "%04d. %02d. %02d.", getRtcTime(rtc, YEAR), getRtcTime(rtc, MONTH), getRtcTime(rtc, DAY));
 }
 void drawDate() {
   char dateBuf[13];
@@ -73,28 +65,23 @@ void drawTime() {
   formatTime(clockBuf);
   oledWriteString(&ssoled, 0, 25, 3, clockBuf, FONT_STRETCHED, 0, 1);  
 }
-void drawSecondary() {
-  oledFill(&ssoled, 0, 1);
-  switch (currentPage) {
-    case 0: {
-      oledWriteString(&ssoled, 0, 0, 1, "Sync time (BT)", FONT_NORMAL, 1, 1);
-      oledWriteString(&ssoled, 0, 0, 2, "Timer", FONT_NORMAL, 0, 1);
-      oledWriteString(&ssoled, 0, 0, 2, "Stopwatch", FONT_NORMAL, 0, 1);
-    }    
-  }
-}
-void formatTime(char* clockBuf) {
-  snprintf(clockBuf, 6, "%02d:%02d", getRtcTime(rtc, HOUR), getRtcTime(rtc, MINUTE));
-}
-void formatDate(char* dateBuf) {
-  snprintf(dateBuf, 13, "%04d. %02d. %02d.", getRtcTime(rtc, YEAR), getRtcTime(rtc, MONTH), getRtcTime(rtc, DAY));
-}
-
 void refreshTime() {
-  if (millis() - lastTimeRefresh >= timeRefreshMs) {
-    lastTimeRefresh = millis();
-    drawTime();  
+  unsigned int currentMinute = getRtcTime(rtc, MINUTE);
+  if (currentMinute != lastMinuteTime) {
+    lastMinuteTime = currentMinute; 
+    drawTime();
   }
+}
+void refreshDate() {
+  unsigned int currentDay = getRtcTime(rtc, DAY);
+  if (currentDay != lastDayDate) {
+    lastDayDate = currentDay; 
+    drawDate();
+  }
+}
+void refreshMain() {
+  refreshDate();
+  refreshTime();
 }
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
@@ -111,6 +98,80 @@ void refreshPage() {
   }
 }
 
+void switchPageChange() {
+  if (millis() - lastPress >= switchDelay) {
+    if (switch0Flag == HIGH) {
+      lastPress = millis();
+      switch(switch0Role) {
+        case SECONDARY: {
+          toggleSecondary = true;
+          break;  
+        }
+        case DOWN: {
+          secondaryDownFlag = true;
+          break;
+        }
+      }
+    }
+    if (switch1Flag == HIGH) {
+      lastPress = millis();   
+      switch(switch1Role) {
+        case NEXT_PAGE: {
+          incrementPage();
+          refreshPage();
+          break;
+        }
+        case SELECT: {
+          secondarySelectFlag = true;
+          break;
+        }
+      }
+    }
+  }
+}
+
+void incrementPage() {
+    if (currentPage >= maxPage) {
+      currentPage = 0;
+    } else {
+      currentPage++;
+    }
+}
+
+void drawTimeSync() {
+  oledWriteString(&ssoled, 0, 0, 0, "Syncing over BT...", FONT_SMALL, 0, 1);
+}
+void drawSecondaryOption(int index = -1) {
+  int offset = 2;
+  if (index == -1) {
+    for (int i = 0; i < sizeof(secondaryOptions) / sizeof(*secondaryOptions); i++ ) {
+      oledWriteString(&ssoled, 0, 0, offset + i, secondaryOptions[i], FONT_NORMAL, currentSecondaryOption == i, 1);
+    } 
+  } else {
+    if (index == 0) {
+      oledWriteString(&ssoled, 0, 0, offset + (currentMaxSecondaryOption - 1), secondaryOptions[(currentMaxSecondaryOption - 1)], FONT_NORMAL, 0, 1);
+    } else {
+      oledWriteString(&ssoled, 0, 0, offset + currentSecondaryOption - 1, secondaryOptions[index - 1], FONT_NORMAL, 0, 1);
+    }
+    oledWriteString(&ssoled, 0, 0, offset + currentSecondaryOption, secondaryOptions[index], FONT_NORMAL, 1, 1);
+  }
+}
+void drawSecondary() {
+  //MAX 6
+  oledFill(&ssoled, 0, 1);
+  oledWriteString(&ssoled, 0, 0, 0, "Secondary", FONT_NORMAL, 1, 1);
+  currentSecondaryOption = 0;
+  switch (currentPage) {
+    case 0: {
+      currentMaxSecondaryOption = 4;
+      strcpy(secondaryOptions[0], "Back");
+      strcpy(secondaryOptions[1], "Sync time (BT)");
+      strcpy(secondaryOptions[2], "Timer");
+      strcpy(secondaryOptions[3], "Stopwatch");
+      drawSecondaryOption();
+    }    
+  }
+}
 void btSafeReadLine(char* outStr, int len) {
   btSerial.readString().toCharArray(outStr, len);
 }
@@ -148,9 +209,27 @@ void switchSecondary() {
     if (secondary) {
       refreshPage();
       secondary = false;
+      switch0Role = SECONDARY;
+      switch1Role = NEXT_PAGE;
     } else {
       drawSecondary();
       secondary = true;
+      switch0Role = DOWN;
+      switch1Role = SELECT;
+    }
+  }
+  if (secondary) {
+    if (secondaryDownFlag) {
+      secondaryDownFlag = false;
+      if (currentSecondaryOption+1 < currentMaxSecondaryOption) {
+        currentSecondaryOption++;
+      } else {
+        currentSecondaryOption = 0;
+      }
+      drawSecondaryOption(currentSecondaryOption);
+    }
+    if (secondarySelectFlag) {
+      secondarySelectFlag = false;
     }
   }  
 }
@@ -184,8 +263,8 @@ void setup() {
 }
 
 void loop() {
-  if (currentPage == 0) {
-    refreshTime();  
+  if (currentPage == 0 && !secondary) {
+    refreshMain();
   }
   switchPageChange();
   switchSecondary();
