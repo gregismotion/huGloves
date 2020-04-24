@@ -29,7 +29,7 @@ unsigned long lastPress = 0;
 
 unsigned int lastMinuteTime = 100;
 unsigned int lastDayDate = 100;
-unsigned int currentPage = 0;
+int currentPage = 0;
 const unsigned int maxPage = 1;
 
 bool toggleSecondary = false;
@@ -39,6 +39,7 @@ bool secondarySelectFlag = false;
 unsigned int currentSecondaryOption = 0;
 unsigned int currentMaxSecondaryOption = 0;
 char secondaryOptions[5][20];
+int secondaryOptionsRole[5];
 
 RTC_DS3231 rtc;
 
@@ -86,6 +87,9 @@ void refreshMain() {
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
   switch (currentPage) {
+    case -1: {
+      drawTime();
+    }
     case 0: {
       drawDate();
       drawTime();
@@ -141,6 +145,7 @@ void incrementPage() {
 void drawTimeSync() {
   oledWriteString(&ssoled, 0, 0, 0, "Syncing over BT...", FONT_SMALL, 0, 1);
 }
+enum secondaryOptionRole{ BACK, SYNC_TIME_BT, TIMER, STOPWATCH };
 void drawSecondaryOption(int index = -1) {
   int offset = 2;
   if (index == -1) {
@@ -165,9 +170,13 @@ void drawSecondary() {
     case 0: {
       currentMaxSecondaryOption = 4;
       strcpy(secondaryOptions[0], "Back");
+      secondaryOptionsRole[0] = BACK;
       strcpy(secondaryOptions[1], "Sync time (BT)");
+      secondaryOptionsRole[1] = SYNC_TIME_BT;
       strcpy(secondaryOptions[2], "Timer");
+      secondaryOptionsRole[2] = TIMER;
       strcpy(secondaryOptions[3], "Stopwatch");
+      secondaryOptionsRole[3] = STOPWATCH;
       drawSecondaryOption();
     }    
   }
@@ -230,6 +239,27 @@ void switchSecondary() {
     }
     if (secondarySelectFlag) {
       secondarySelectFlag = false;
+      switch(secondaryOptionsRole[currentSecondaryOption]) {
+        case BACK: {
+          toggleSecondary = true;
+          break;
+        }
+        case SYNC_TIME_BT: {
+          toggleSecondary = true;
+          syncTime();
+          break;
+        }
+        case TIMER: {
+          currentPage = -1;
+          toggleSecondary = true;
+          break;
+        }
+        case STOPWATCH: {
+          currentPage = -2;
+          toggleSecondary = true;
+          break;
+        }
+      }
     }
   }  
 }
