@@ -54,7 +54,7 @@ struct SecondaryState {
 SecondaryState secondary;
 PageState page;
 LastState last;
-SwitchState switchS;
+volatile SwitchState switchS;
 
 RTC_DS3231 rtc;
 
@@ -81,6 +81,7 @@ void drawTime() {
   formatTime(clockBuf);
   oledWriteString(&ssoled, 0, 25, 3, clockBuf, FONT_STRETCHED, 0, 1);  
 }
+
 void refreshTime() {
   unsigned int currentMinute = getRtcTime(rtc, MINUTE);
   if (currentMinute != last.minuteTime) {
@@ -122,6 +123,13 @@ void refreshPage() {
   }
 }
 
+void incrementPage() {
+    if (page.current >= page.max) {
+      page.current = 0;
+    } else {
+      page.current++;
+    }
+}
 void switchPageChange() {
   if (millis() - switchS.lastPress >= switchDelay) {
     if (switchS.flag0 == HIGH) {
@@ -157,17 +165,32 @@ void switchPageChange() {
   }
 }
 
-void incrementPage() {
-    if (page.current >= page.max) {
-      page.current = 0;
-    } else {
-      page.current++;
-    }
-}
-
 void drawTimeSync() {
   oledWriteString(&ssoled, 0, 0, 0, "Syncing over BT...", FONT_SMALL, 0, 1);
 }
+
+void btSafeReadLine(char* outStr, int len) {
+  btSerial.readString().toCharArray(outStr, len);
+}
+void btSafePrintLn(String str) {
+  noInterrupts();
+  btSerial.println(str);
+  interrupts();
+}
+void waitForBt() {
+  unsigned long waitingStart = millis();
+  while(btSerial.available() == 0 && millis() - waitingStart < btTimeout) { }
+}
+void syncTimeBT() {
+  btSafePrintLn("TIME");
+  waitForBt();
+  char input[20];
+  btSafeReadLine(input, 20);
+  DateTime date;
+  tokenizeDate(&date, input);
+  setRtcTime(rtc, date);
+}
+
 enum secondaryOptionRole{ BACK, SYNC_TIME_BT, TIMER, STOPWATCH };
 void drawSecondaryOption(int index = -1) {
   int offset = 2;
@@ -208,37 +231,42 @@ void drawSecondary() {
     }    
   }
 }
-void btSafeReadLine(char* outStr, int len) {
-  btSerial.readString().toCharArray(outStr, len);
-}
-void btSafePrintLn(String str) {
-  noInterrupts();
-  btSerial.println(str);
-  interrupts();
-}
-void waitForBt() {
-  unsigned long waitingStart = millis();
-  while(btSerial.available() == 0 && millis() - waitingStart < btTimeout) { }
-}
-
-void syncTimeBT() {
-  btSafePrintLn("TIME");
-  waitForBt();
-  char input[20];
-  btSafeReadLine(input, 20);
-  DateTime date;
-  tokenizeDate(&date, input);
-  setRtcTime(rtc, date);
-}
-
-bool initScreen() {
-  if (oledInit(&ssoled, OLED_128x64, OLED_ADDR, FLIP180, INVERT, USE_HW_I2C, SDA_PIN, SCL_PIN, RESET_PIN, 400000L) == OLED_NOT_FOUND) {
-    return false;
+void handleSecondary() {
+  if (secondary.downFlag) {
+  secondary.downFlag = false;
+  secondary.lastOption = secondary.currentOption;
+  if (secondary.currentOption+1 < secondary.currentMaxOption) {
+    secondary.currentOption++;
+  } else {
+    secondary.currentOption = 0;
   }
-  oledFill(&ssoled, 0, 1);
-  return true;
+  drawSecondaryOption(secondary.currentOption);
+  }
+  if (secondary.selectFlag) {
+    secondary.selectFlag = false;
+    switch(secondary.optionsRole[secondary.currentOption]) {
+      case BACK: {
+        secondary.toggle = true;
+        break;
+      }
+      case SYNC_TIME_BT: {
+        secondary.toggle = true;
+        syncTime();
+        break;
+      }
+      case TIMER: {
+        secondary.toggle = true;
+        page.current = -1;
+        break;
+      }
+      case STOPWATCH: {
+        secondary.toggle = true;
+        page.current = -2;
+        break;
+      }
+    }
+  }
 }
-
 void switchSecondary() {
   if (secondary.toggle) {
     secondary.toggle = false;
@@ -249,42 +277,6 @@ void switchSecondary() {
       drawSecondary();
       secondary.isOn = true;
     }
-  }
-  if (secondary.isOn) {
-    if (secondary.downFlag) {
-      secondary.downFlag = false;
-      secondary.lastOption = secondary.currentOption;
-      if (secondary.currentOption+1 < secondary.currentMaxOption) {
-        secondary.currentOption++;
-      } else {
-        secondary.currentOption = 0;
-      }
-      drawSecondaryOption(secondary.currentOption);
-    }
-    if (secondary.selectFlag) {
-      secondary.selectFlag = false;
-      switch(secondary.optionsRole[secondary.currentOption]) {
-        case BACK: {
-          secondary.toggle = true;
-          break;
-        }
-        case SYNC_TIME_BT: {
-          secondary.toggle = true;
-          syncTime();
-          break;
-        }
-        case TIMER: {
-          secondary.toggle = true;
-          page.current = -1;
-          break;
-        }
-        case STOPWATCH: {
-          secondary.toggle = true;
-          page.current = -2;
-          break;
-        }
-      }
-    }
   }  
 }
 
@@ -293,12 +285,18 @@ void syncTime() {
   drawTimeSync();
   syncTimeBT();
 }
-
 void setupSwitches() {
   pinMode(switchS.pin0, INPUT);
   pinMode(switchS.pin1, INPUT);
   attachInterrupt(digitalPinToInterrupt(switchS.pin0), switch0Changed, CHANGE);
   attachInterrupt(digitalPinToInterrupt(switchS.pin1), switch1Changed, CHANGE);
+}
+bool initScreen() {
+  if (oledInit(&ssoled, OLED_128x64, OLED_ADDR, FLIP180, INVERT, USE_HW_I2C, SDA_PIN, SCL_PIN, RESET_PIN, 400000L) == OLED_NOT_FOUND) {
+    return false;
+  }
+  oledFill(&ssoled, 0, 1);
+  return true;
 }
 
 void setup() {
@@ -323,4 +321,7 @@ void loop() {
   }
   switchPageChange();
   switchSecondary();
+  if (secondary.isOn) {
+    handleSecondary();
+  }
 }
