@@ -32,14 +32,17 @@ unsigned int lastDayDate = 100;
 int currentPage = 0;
 const unsigned int maxPage = 1;
 
-bool toggleSecondary = false;
-bool secondary = false;
-bool secondaryDownFlag = false;
-bool secondarySelectFlag = false;
-unsigned int currentSecondaryOption = 0;
-unsigned int currentMaxSecondaryOption = 0;
-char secondaryOptions[5][20];
-int secondaryOptionsRole[5];
+struct Secondary {
+  bool toggle = false;
+  bool isOn = false;
+  bool downFlag = false;
+  bool selectFlag = false;
+  unsigned int currentOption = 0;
+  unsigned int currentMaxOption = 0;
+  char options[5][20];
+  int optionsRole[5];
+};
+Secondary secondary;
 
 RTC_DS3231 rtc;
 
@@ -87,7 +90,7 @@ void refreshMain() {
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
   switch (currentPage) {
-    case -1: {
+    case -2: {
       drawTime();
     }
     case 0: {
@@ -108,11 +111,11 @@ void switchPageChange() {
       lastPress = millis();
       switch(switch0Role) {
         case SECONDARY: {
-          toggleSecondary = true;
+          secondary.toggle = true;
           break;  
         }
         case DOWN: {
-          secondaryDownFlag = true;
+          secondary.downFlag = true;
           break;
         }
       }
@@ -126,8 +129,11 @@ void switchPageChange() {
           break;
         }
         case SELECT: {
-          secondarySelectFlag = true;
+          secondary.selectFlag = true;
           break;
+        }
+        case INCREASE: {
+          break;  
         }
       }
     }
@@ -149,34 +155,41 @@ enum secondaryOptionRole{ BACK, SYNC_TIME_BT, TIMER, STOPWATCH };
 void drawSecondaryOption(int index = -1) {
   int offset = 2;
   if (index == -1) {
-    for (int i = 0; i < sizeof(secondaryOptions) / sizeof(*secondaryOptions); i++ ) {
-      oledWriteString(&ssoled, 0, 0, offset + i, secondaryOptions[i], FONT_NORMAL, currentSecondaryOption == i, 1);
+    //TODO: CHANGE LEGNTH GETTING THING FUCK
+    for (int i = 0; i < sizeof(secondary.options) / sizeof(*secondary.options); i++ ) {
+      oledWriteString(&ssoled, 0, 0, offset + i, secondary.options[i], FONT_NORMAL, secondary.currentOption == i, 1);
     } 
   } else {
     if (index == 0) {
-      oledWriteString(&ssoled, 0, 0, offset + (currentMaxSecondaryOption - 1), secondaryOptions[(currentMaxSecondaryOption - 1)], FONT_NORMAL, 0, 1);
+      oledWriteString(&ssoled, 0, 0, offset + (secondary.currentMaxOption - 1), secondary.options[(secondary.currentOption - 1)], FONT_NORMAL, 0, 1);
     } else {
-      oledWriteString(&ssoled, 0, 0, offset + currentSecondaryOption - 1, secondaryOptions[index - 1], FONT_NORMAL, 0, 1);
+      oledWriteString(&ssoled, 0, 0, offset + secondary.currentOption - 1, secondary.options[index - 1], FONT_NORMAL, 0, 1);
     }
-    oledWriteString(&ssoled, 0, 0, offset + currentSecondaryOption, secondaryOptions[index], FONT_NORMAL, 1, 1);
+    oledWriteString(&ssoled, 0, 0, offset + secondary.currentOption, secondary.options[index], FONT_NORMAL, 1, 1);
   }
 }
 void drawSecondary() {
-  //MAX 6
   oledFill(&ssoled, 0, 1);
   oledWriteString(&ssoled, 0, 0, 0, "Secondary", FONT_NORMAL, 1, 1);
-  currentSecondaryOption = 0;
+  for (int i = 0; i < sizeof(secondary.options) / sizeof(*secondary.options); i++ ) {
+    strcpy(secondary.options[i], "");
+  } 
+  secondary.currentOption = 0;
+  secondary.currentMaxOption = 1;
+  strcpy(secondary.options[0], "Back");
+  secondary.optionsRole[0] = BACK;
   switch (currentPage) {
     case 0: {
-      currentMaxSecondaryOption = 4;
-      strcpy(secondaryOptions[0], "Back");
-      secondaryOptionsRole[0] = BACK;
-      strcpy(secondaryOptions[1], "Sync time (BT)");
-      secondaryOptionsRole[1] = SYNC_TIME_BT;
-      strcpy(secondaryOptions[2], "Timer");
-      secondaryOptionsRole[2] = TIMER;
-      strcpy(secondaryOptions[3], "Stopwatch");
-      secondaryOptionsRole[3] = STOPWATCH;
+      strcpy(secondary.options[1], "Sync time (BT)");
+      secondary.optionsRole[1] = SYNC_TIME_BT;
+      
+      strcpy(secondary.options[2], "Timer");
+      secondary.optionsRole[2] = TIMER;
+      
+      strcpy(secondary.options[3], "Stopwatch");
+      secondary.optionsRole[3] = STOPWATCH;
+      
+      secondary.currentMaxOption += 3;
       drawSecondaryOption();
     }    
   }
@@ -213,50 +226,52 @@ bool initScreen() {
 }
 
 void switchSecondary() {
-  if (toggleSecondary) {
-    toggleSecondary = false;
-    if (secondary) {
+  if (secondary.toggle) {
+    secondary.toggle = false;
+    if (secondary.isOn) {
       refreshPage();
-      secondary = false;
+      secondary.isOn = false;
       switch0Role = SECONDARY;
       switch1Role = NEXT_PAGE;
     } else {
       drawSecondary();
-      secondary = true;
+      secondary.isOn = true;
       switch0Role = DOWN;
       switch1Role = SELECT;
     }
   }
-  if (secondary) {
-    if (secondaryDownFlag) {
-      secondaryDownFlag = false;
-      if (currentSecondaryOption+1 < currentMaxSecondaryOption) {
-        currentSecondaryOption++;
+  if (secondary.isOn) {
+    if (secondary.downFlag) {
+      secondary.downFlag = false;
+      if (secondary.currentOption+1 < secondary.currentMaxOption) {
+        secondary.currentOption++;
       } else {
-        currentSecondaryOption = 0;
+        secondary.currentOption = 0;
       }
-      drawSecondaryOption(currentSecondaryOption);
+      drawSecondaryOption(secondary.currentOption);
     }
-    if (secondarySelectFlag) {
-      secondarySelectFlag = false;
-      switch(secondaryOptionsRole[currentSecondaryOption]) {
+    if (secondary.selectFlag) {
+      secondary.selectFlag = false;
+      switch(secondary.optionsRole[secondary.currentOption]) {
         case BACK: {
-          toggleSecondary = true;
+          secondary.toggle = true;
           break;
         }
         case SYNC_TIME_BT: {
-          toggleSecondary = true;
+          secondary.toggle = true;
           syncTime();
           break;
         }
         case TIMER: {
-          currentPage = -1;
-          toggleSecondary = true;
+          switch0Role = SET;
+          switch1Role = INCREASE;
+          secondary.toggle = true;
+          currentPage = -2;
           break;
         }
         case STOPWATCH: {
-          currentPage = -2;
-          toggleSecondary = true;
+          secondary.toggle = true;
+          currentPage = -3;
           break;
         }
       }
@@ -279,6 +294,7 @@ void setupSwitches() {
 
 void setup() {
   btSerial.begin(9600); 
+  btSafePrintLn("START");
   if (!initScreen()) {
     btSafePrintLn("ERR");
     for (;;) {}
@@ -293,7 +309,7 @@ void setup() {
 }
 
 void loop() {
-  if (currentPage == 0 && !secondary) {
+  if (currentPage == 0 && !secondary.isOn) {
     refreshMain();
   }
   switchPageChange();
