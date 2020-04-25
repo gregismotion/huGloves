@@ -38,6 +38,7 @@ struct Secondary {
   bool downFlag = false;
   bool selectFlag = false;
   unsigned int currentOption = 0;
+  unsigned int lastOption = 0;
   unsigned int currentMaxOption = 0;
   char options[5][20];
   int optionsRole[5];
@@ -90,10 +91,15 @@ void refreshMain() {
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
   switch (currentPage) {
-    case -2: {
+    case -1: {
+      switch0Role = SET;
+      switch1Role = INCREASE;
       drawTime();
+      break;
     }
     case 0: {
+      switch0Role = SECONDARY;
+      switch1Role = NEXT_PAGE;
       drawDate();
       drawTime();
       break;
@@ -155,23 +161,20 @@ enum secondaryOptionRole{ BACK, SYNC_TIME_BT, TIMER, STOPWATCH };
 void drawSecondaryOption(int index = -1) {
   int offset = 2;
   if (index == -1) {
-    //TODO: CHANGE LEGNTH GETTING THING FUCK
-    for (int i = 0; i < sizeof(secondary.options) / sizeof(*secondary.options); i++ ) {
+    for (int i = 0; i < secondary.currentMaxOption; i++ ) {
       oledWriteString(&ssoled, 0, 0, offset + i, secondary.options[i], FONT_NORMAL, secondary.currentOption == i, 1);
     } 
   } else {
-    if (index == 0) {
-      oledWriteString(&ssoled, 0, 0, offset + (secondary.currentMaxOption - 1), secondary.options[(secondary.currentOption - 1)], FONT_NORMAL, 0, 1);
-    } else {
-      oledWriteString(&ssoled, 0, 0, offset + secondary.currentOption - 1, secondary.options[index - 1], FONT_NORMAL, 0, 1);
-    }
+    oledWriteString(&ssoled, 0, 0, offset + secondary.lastOption, secondary.options[secondary.lastOption], FONT_NORMAL, 0, 1);
     oledWriteString(&ssoled, 0, 0, offset + secondary.currentOption, secondary.options[index], FONT_NORMAL, 1, 1);
   }
 }
 void drawSecondary() {
+  switch0Role = DOWN;
+  switch1Role = SELECT;
   oledFill(&ssoled, 0, 1);
   oledWriteString(&ssoled, 0, 0, 0, "Secondary", FONT_NORMAL, 1, 1);
-  for (int i = 0; i < sizeof(secondary.options) / sizeof(*secondary.options); i++ ) {
+  for (int i = 0; i < secondary.currentMaxOption; i++ ) {
     strcpy(secondary.options[i], "");
   } 
   secondary.currentOption = 0;
@@ -231,18 +234,15 @@ void switchSecondary() {
     if (secondary.isOn) {
       refreshPage();
       secondary.isOn = false;
-      switch0Role = SECONDARY;
-      switch1Role = NEXT_PAGE;
     } else {
       drawSecondary();
       secondary.isOn = true;
-      switch0Role = DOWN;
-      switch1Role = SELECT;
     }
   }
   if (secondary.isOn) {
     if (secondary.downFlag) {
       secondary.downFlag = false;
+      secondary.lastOption = secondary.currentOption;
       if (secondary.currentOption+1 < secondary.currentMaxOption) {
         secondary.currentOption++;
       } else {
@@ -263,15 +263,13 @@ void switchSecondary() {
           break;
         }
         case TIMER: {
-          switch0Role = SET;
-          switch1Role = INCREASE;
           secondary.toggle = true;
-          currentPage = -2;
+          currentPage = -1;
           break;
         }
         case STOPWATCH: {
           secondary.toggle = true;
-          currentPage = -3;
+          currentPage = -2;
           break;
         }
       }
