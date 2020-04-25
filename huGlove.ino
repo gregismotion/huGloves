@@ -17,18 +17,22 @@ SSOLED ssoled;
 SoftwareSerial btSerial(RxD, TxD); 
 const int btTimeout = 60000 * 3;
 
-enum SwitchRole { NEXT_PAGE, DOWN, SELECT, SECONDARY, SET, INCREASE, MAIN, START_STOP };
-const int switch0Pin = 2;
-const int switch1Pin = 3;
-volatile int switch0Flag = LOW;
-volatile int switch1Flag = LOW;
-int switch0Role = SECONDARY;
-int switch1Role = NEXT_PAGE;
 const int switchDelay = 500;
-unsigned long lastPress = 0;
+enum SwitchRole { NEXT_PAGE, DOWN, SELECT, SECONDARY, SET, INCREASE, MAIN, START_STOP };
+struct SwitchState {
+  const int pin0 = 2;
+  const int pin1 = 3;
+  volatile int flag0 = LOW;
+  volatile int flag1 = LOW;
+  int role0 = SECONDARY;
+  int role1 = NEXT_PAGE;
+  unsigned long lastPress = 0;
+};
 
-unsigned int lastMinuteTime = 100;
-unsigned int lastDayDate = 100;
+struct LastState {
+  unsigned int minuteTime = 100;
+  unsigned int dayDate = 100;
+};
 
 struct PageState {
   int current = 0;
@@ -49,14 +53,16 @@ struct SecondaryState {
 
 SecondaryState secondary;
 PageState page;
+LastState last;
+SwitchState switchS;
 
 RTC_DS3231 rtc;
 
 void switch0Changed() {
-  switch0Flag = digitalRead(switch0Pin);
+  switchS.flag0 = digitalRead(switchS.pin0);
 }
 void switch1Changed() {
-  switch1Flag = digitalRead(switch1Pin);
+  switchS.flag1 = digitalRead(switchS.pin1);
 }
 
 void formatTime(char* clockBuf) {
@@ -77,15 +83,15 @@ void drawTime() {
 }
 void refreshTime() {
   unsigned int currentMinute = getRtcTime(rtc, MINUTE);
-  if (currentMinute != lastMinuteTime) {
-    lastMinuteTime = currentMinute; 
+  if (currentMinute != last.minuteTime) {
+    last.minuteTime = currentMinute; 
     drawTime();
   }
 }
 void refreshDate() {
   unsigned int currentDay = getRtcTime(rtc, DAY);
-  if (currentDay != lastDayDate) {
-    lastDayDate = currentDay; 
+  if (currentDay != last.dayDate) {
+    last.dayDate = currentDay; 
     drawDate();
   }
 }
@@ -95,12 +101,12 @@ void refreshMain() {
 }
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
-  switch0Role = SECONDARY;
-  switch1Role = NEXT_PAGE;
+  switchS.role0 = SECONDARY;
+  switchS.role1 = NEXT_PAGE;
   switch (page.current) {
     case -1: {
-      switch0Role = SET;
-      switch1Role = INCREASE;
+      switchS.role0 = SET;
+      switchS.role1 = INCREASE;
       drawTime();
       break;
     }
@@ -117,10 +123,10 @@ void refreshPage() {
 }
 
 void switchPageChange() {
-  if (millis() - lastPress >= switchDelay) {
-    if (switch0Flag == HIGH) {
-      lastPress = millis();
-      switch(switch0Role) {
+  if (millis() - switchS.lastPress >= switchDelay) {
+    if (switchS.flag0 == HIGH) {
+      switchS.lastPress = millis();
+      switch(switchS.role0) {
         case SECONDARY: {
           secondary.toggle = true;
           break;  
@@ -131,9 +137,9 @@ void switchPageChange() {
         }
       }
     }
-    if (switch1Flag == HIGH) {
-      lastPress = millis();   
-      switch(switch1Role) {
+    if (switchS.flag1 == HIGH) {
+      switchS.lastPress = millis();   
+      switch(switchS.role1) {
         case NEXT_PAGE: {
           incrementPage();
           refreshPage();
@@ -175,8 +181,8 @@ void drawSecondaryOption(int index = -1) {
   }
 }
 void drawSecondary() {
-  switch0Role = DOWN;
-  switch1Role = SELECT;
+  switchS.role0 = DOWN;
+  switchS.role1 = SELECT;
   oledFill(&ssoled, 0, 1);
   oledWriteString(&ssoled, 0, 0, 0, "Secondary", FONT_NORMAL, 1, 1);
   for (int i = 0; i < secondary.currentMaxOption; i++ ) {
@@ -289,10 +295,10 @@ void syncTime() {
 }
 
 void setupSwitches() {
-  pinMode(switch0Pin, INPUT);
-  pinMode(switch1Pin, INPUT);
-  attachInterrupt(digitalPinToInterrupt(switch0Pin), switch0Changed, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(switch1Pin), switch1Changed, CHANGE);
+  pinMode(switchS.pin0, INPUT);
+  pinMode(switchS.pin1, INPUT);
+  attachInterrupt(digitalPinToInterrupt(switchS.pin0), switch0Changed, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(switchS.pin1), switch1Changed, CHANGE);
 }
 
 void setup() {
