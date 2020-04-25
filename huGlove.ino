@@ -29,10 +29,13 @@ unsigned long lastPress = 0;
 
 unsigned int lastMinuteTime = 100;
 unsigned int lastDayDate = 100;
-int currentPage = 0;
-const unsigned int maxPage = 1;
 
-struct Secondary {
+struct PageState {
+  int current = 0;
+  unsigned int max = 1;
+};
+
+struct SecondaryState {
   bool toggle = false;
   bool isOn = false;
   bool downFlag = false;
@@ -43,7 +46,9 @@ struct Secondary {
   char options[5][20];
   int optionsRole[5];
 };
-Secondary secondary;
+
+SecondaryState secondary;
+PageState page;
 
 RTC_DS3231 rtc;
 
@@ -90,7 +95,9 @@ void refreshMain() {
 }
 void refreshPage() {
   oledFill(&ssoled, 0, 1);
-  switch (currentPage) {
+  switch0Role = SECONDARY;
+  switch1Role = NEXT_PAGE;
+  switch (page.current) {
     case -1: {
       switch0Role = SET;
       switch1Role = INCREASE;
@@ -98,8 +105,6 @@ void refreshPage() {
       break;
     }
     case 0: {
-      switch0Role = SECONDARY;
-      switch1Role = NEXT_PAGE;
       drawDate();
       drawTime();
       break;
@@ -147,10 +152,10 @@ void switchPageChange() {
 }
 
 void incrementPage() {
-    if (currentPage >= maxPage) {
-      currentPage = 0;
+    if (page.current >= page.max) {
+      page.current = 0;
     } else {
-      currentPage++;
+      page.current++;
     }
 }
 
@@ -181,7 +186,7 @@ void drawSecondary() {
   secondary.currentMaxOption = 1;
   strcpy(secondary.options[0], "Back");
   secondary.optionsRole[0] = BACK;
-  switch (currentPage) {
+  switch (page.current) {
     case 0: {
       strcpy(secondary.options[1], "Sync time (BT)");
       secondary.optionsRole[1] = SYNC_TIME_BT;
@@ -264,12 +269,12 @@ void switchSecondary() {
         }
         case TIMER: {
           secondary.toggle = true;
-          currentPage = -1;
+          page.current = -1;
           break;
         }
         case STOPWATCH: {
           secondary.toggle = true;
-          currentPage = -2;
+          page.current = -2;
           break;
         }
       }
@@ -307,7 +312,7 @@ void setup() {
 }
 
 void loop() {
-  if (currentPage == 0 && !secondary.isOn) {
+  if (page.current == 0 && !secondary.isOn) {
     refreshMain();
   }
   switchPageChange();
